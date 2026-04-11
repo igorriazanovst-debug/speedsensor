@@ -111,9 +111,13 @@ class MainWindow(QMainWindow):
         exp_outer_lay.addWidget(self._stack_exp)
         self._tabs.addTab(experiment_outer, "📈  Эксперимент")
 
-        # Остальные вкладки-заглушки
+        # Вкладка обработки (заглушка)
         self._tabs.addTab(self._make_placeholder("Обработка данных"), "🔬  Обработка")
-        self._tabs.addTab(self._make_placeholder("Моделирование жидкости"), "🌊  Моделирование")
+
+        # Вкладка моделирования жидкости
+        from ui.fluid_sim_widget import FluidSimWidget
+        self._fluid_sim = FluidSimWidget()
+        self._tabs.addTab(self._fluid_sim, "🌊  Моделирование")
 
         self.setCentralWidget(self._tabs)
 
@@ -172,7 +176,7 @@ class MainWindow(QMainWindow):
         self._settings.set("language", self._lang)
         self._scenarios_widget.set_language(self._lang)
         tab_ru = ["📋  Сценарии", "📈  Эксперимент", "🔬  Обработка", "🌊  Моделирование"]
-        tab_en = ["📋  Scenarios", "📈  Experiment",  "🔬  Processing", "🌊  Simulation"]
+        tab_en = ["📋  Scenarios", "📈  Experiment",  "🔬  Processing", "🌊  Fluid Sim"]
         for i, lbl in enumerate(tab_ru if self._lang == "ru" else tab_en):
             self._tabs.setTabText(i, lbl)
 
