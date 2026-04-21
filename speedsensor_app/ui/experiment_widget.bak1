@@ -37,8 +37,7 @@ class _GraphTooltip(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Без Tool-флага: tooltip — дочерний виджет PlotWidget,
-        # координаты move() задаются в системе родителя, не экрана.
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -236,7 +235,6 @@ class ExperimentWidget(QWidget):
         self._last_sample_count: int = 0
         self._zoom_x = True
         self._zoom_y = True
-        self._tooltip_follow = True   # True = следует за курсором, False = статичный блок
         self._line_params = {
             "color": C_LINE,
             "width": 2.0,
@@ -349,43 +347,15 @@ class ExperimentWidget(QWidget):
         self._btn_line_style.clicked.connect(self._on_line_style)
         ctrl.addWidget(self._btn_line_style)
 
-        ctrl.addWidget(_vsep())
-
-        self._chk_tooltip = QCheckBox("📍 Tooltip")
-        self._chk_tooltip.setChecked(True)
-        self._chk_tooltip.setToolTip(
-            "Вкл: мгновенные значения следуют за курсором\n"
-            "Выкл: значения отображаются в статичном блоке"
-        )
-        self._chk_tooltip.stateChanged.connect(self._on_tooltip_mode_changed)
-        ctrl.addWidget(self._chk_tooltip)
-
         right_lay.addLayout(ctrl)
 
-        # ── Строка значений (текущее + статичный блок при tooltip=off) ──
-        values_row = QHBoxLayout()
-        values_row.setSpacing(6)
-
+        # Текущее значение
         self._lbl_current = QLabel("— —")
         self._lbl_current.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl_current.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
         self._lbl_current.setStyleSheet(f"color: {C_ACCENT};")
         self._lbl_current.setFixedHeight(52)
-        values_row.addWidget(self._lbl_current, stretch=1)
-
-        # Статичный блок мгновенных значений (виден только когда tooltip выкл.)
-        self._static_info = QLabel("")
-        self._static_info.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        self._static_info.setStyleSheet(
-            f"color: {C_TEXT}; font-size: 11px; font-family: 'Consolas', monospace;"
-            f"background: #181825; border: 1px solid #45475a; border-radius: 5px;"
-            f"padding: 4px 10px;"
-        )
-        self._static_info.setFixedHeight(52)
-        self._static_info.setVisible(False)
-        values_row.addWidget(self._static_info, stretch=2)
-
-        right_lay.addLayout(values_row)
+        right_lay.addWidget(self._lbl_current)
 
         # Вкладки: График / Таблица
         self._inner_tabs = QTabWidget()
@@ -572,18 +542,6 @@ class ExperimentWidget(QWidget):
         self._cache_dirty = True
         if self._mode == MODE_SIMULATION:
             self._sim_panel.update_speed_display(omega)
-        # Статичный блок значений (когда tooltip-следование выключено)
-        if not self._tooltip_follow:
-            rps = omega / (2.0 * math.pi)
-            rpm = rps * 60.0
-            diam = self._exp_data.disk_diameter_mm
-            v = omega * (diam / 2.0)
-            unit_str = "рад/с" if self._unit == UNIT_RAD_S else "об/с"
-            disp = omega / (2.0 * math.pi) if self._unit == UNIT_RPS else omega
-            self._static_info.setText(
-                f"t={t:.2f}с  ω={disp:.3f} {unit_str}  "
-                f"об/с={rps:.3f}  RPM={rpm:.1f}  V={v:.1f} мм/с"
-            )
 
     def _on_error(self, msg: str):
         self._lbl_current.setText("Ошибка")
@@ -595,18 +553,6 @@ class ExperimentWidget(QWidget):
         vb = self._plot_widget.getPlotItem().vb
         # Включаем/выключаем стандартный wheel-zoom pyqtgraph по каждой оси
         vb.setMouseEnabled(x=self._zoom_x, y=self._zoom_y)
-
-    def _on_tooltip_mode_changed(self):
-        self._tooltip_follow = self._chk_tooltip.isChecked()
-        if self._tooltip_follow:
-            self._static_info.setVisible(False)
-            self._static_info.setText("")
-        else:
-            self._tooltip.hide()
-            self._vline.setVisible(False)
-            self._hline.setVisible(False)
-            self._snap_dot.setVisible(False)
-            self._static_info.setVisible(True)
 
     def _apply_line_params(self):
         p = self._line_params
@@ -655,10 +601,6 @@ class ExperimentWidget(QWidget):
             self._tooltip.hide()
             return
 
-        # В статичном режиме курсор на графике не обрабатываем
-        if not self._tooltip_follow:
-            return
-
         mouse_point = pw.getPlotItem().vb.mapSceneToView(pos)
         mx = mouse_point.x()
 
@@ -674,18 +616,22 @@ class ExperimentWidget(QWidget):
         snap_y = ya_disp[idx]
         snap_omega = ya_raw[idx]
 
-        # Перекрестие + точка
+        # Перекрестие
         self._vline.setPos(snap_t)
         self._hline.setPos(snap_y)
         self._vline.setVisible(True)
         self._hline.setVisible(True)
+
+        # Точка
         self._snap_dot.setData([snap_t], [snap_y])
         self._snap_dot.setVisible(True)
 
+        # Значения для tooltip
         rps  = snap_omega / (2.0 * math.pi)
         rpm  = rps * 60.0
         diam = self._exp_data.disk_diameter_mm
         v    = snap_omega * (diam / 2.0)
+
         unit_str = "рад/с" if self._unit == UNIT_RAD_S else "об/с"
         lines = [
             f"t = {snap_t:.3f} с",
@@ -696,19 +642,16 @@ class ExperimentWidget(QWidget):
         ]
         self._tooltip.update_text(lines)
 
-        # Позиция tooltip в координатах pw (дочерний виджет)
-        local = pw.mapFromScene(pos)
-        sx, sy = local.x(), local.y()
-        tw, th = self._tooltip.width(), self._tooltip.height()
-        pw_w, pw_h = pw.width(), pw.height()
+        # Позиция tooltip: следует за мышью, не вылезает за границы
+        scene_rect = pw.sceneBoundingRect()
+        sx, sy = pos.x(), pos.y()
         tx = sx + 16
         ty = sy - 10
-        if tx + tw > pw_w - 4:
+        tw, th = self._tooltip.width(), self._tooltip.height()
+        if tx + tw > scene_rect.right() - 4:
             tx = sx - tw - 16
-        if ty + th > pw_h - 4:
+        if ty + th > scene_rect.bottom() - 4:
             ty = sy - th - 4
-        tx = max(4, tx)
-        ty = max(4, ty)
         self._tooltip.move(int(tx), int(ty))
         self._tooltip.show()
 

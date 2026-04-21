@@ -13,20 +13,36 @@ import random
 
 class MotorSimModel:
     def __init__(self):
-        # Параметры диска/датчика (заполняются из сценария)
-        self.disk_diameter_mm: float = 75.0
-        self.slots: int = 20
+        # ── Параметры двигателя ──────────────────────────────────────────
+        self.max_rpm: float = 600.0         # макс. обороты в минуту при реостате 100%
 
-        # Реостат: 0–100 %
+        # ── Параметры диска датчика ──────────────────────────────────────
+        self.disk_diameter_mm: float = 75.0  # диаметр диска, мм
+        self.slots: int = 20                 # количество пропилов
+        self.slot_width_mm: float = 5.0      # ширина пропила, мм
+        self.slot_gap_mm: float = 6.0        # ширина перемычки, мм
+
+        # ── Реостат: 0–100 % ─────────────────────────────────────────────
         self.rheostat_pct: float = 0.0
 
-        # Диапазон скоростей установки
-        self.max_rps: float = 10.0          # об/с при реостате 100%
+        # ── Шум датчика ──────────────────────────────────────────────────
+        self.noise_percent: float = 1.0      # % от текущего значения
 
-        # Шум датчика
-        self.noise_percent: float = 1.0     # % от текущего значения
+    # ---------------------------------------------------------------- derived props --
 
-    # ---------------------------------------------------------------- props --
+    @property
+    def max_rps(self) -> float:
+        """Максимальная скорость в об/с."""
+        return self.max_rpm / 60.0
+
+    @property
+    def disk_circumference_mm(self) -> float:
+        return math.pi * self.disk_diameter_mm
+
+    @property
+    def slot_period_mm(self) -> float:
+        """Период решётки (пропил + перемычка), мм."""
+        return self.slot_width_mm + self.slot_gap_mm
 
     @property
     def target_rps(self) -> float:
