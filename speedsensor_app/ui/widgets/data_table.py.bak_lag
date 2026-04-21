@@ -33,7 +33,7 @@ class DataTableWidget(QWidget):
         # Буферизация: обновляем таблицу не чаще 10 раз/с
         self._pending = False
         self._flush_timer = QTimer(self)
-        self._flush_timer.setInterval(50)
+        self._flush_timer.setInterval(100)
         self._flush_timer.timeout.connect(self._flush)
 
         self._build_ui()
@@ -123,6 +123,7 @@ class DataTableWidget(QWidget):
     def _flush(self):
         if not self._pending:
             return
+        self._pending = False
 
         total = len(self._data)
         if total == 0:
@@ -130,20 +131,16 @@ class DataTableWidget(QWidget):
 
         self._lbl_count.setText(f"Записей: {total}")
 
+        # Добавляем только новые строки
         start = self._displayed_rows
         end = min(total, MAX_DISPLAY_ROWS)
 
         if start >= end:
-            self._pending = False
             return
 
-        # Ограничиваем батч — не более 50 строк за один вызов
-        batch_end = min(end, start + 50)
+        self._table.setRowCount(end)
 
-        self._table.setUpdatesEnabled(False)
-        self._table.setRowCount(batch_end)
-
-        for i in range(start, batch_end):
+        for i in range(start, end):
             cells = self._data.row_as_display(i)
             bg = _ROW_EVEN if i % 2 == 0 else _ROW_ODD
             for col, val in enumerate(cells):
@@ -155,17 +152,10 @@ class DataTableWidget(QWidget):
                 item.setForeground(_TEXT_COLOR)
                 self._table.setItem(i, col, item)
 
-        self._table.setUpdatesEnabled(True)
-        self._displayed_rows = batch_end
+        self._displayed_rows = end
 
         # Автопрокрутка вниз
         self._table.scrollToBottom()
-
-        # Если остались строки — оставить флаг, чтобы следующий тик добил их
-        if batch_end < end:
-            self._pending = True
-        else:
-            self._pending = False
 
     def _on_clear(self):
         self._data.clear()
