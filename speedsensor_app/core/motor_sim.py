@@ -1,102 +1,52 @@
 """
-Физическая модель двигателя с диском для режима «Моделирование эксперимента».
-Симулирует разгон/торможение с инерцией, шумом датчика и джиттером.
+Модель установки: двигатель постоянного тока с реостатом.
+
+Реостат (0–100%) линейно задаёт угловую скорость в диапазоне [0, max_rps].
+Скорость изменяется мгновенно (без инерции) — соответствует реальной установке,
+где реостат плавно регулирует напряжение на двигателе.
+
+Датчик добавляет гауссовский шум (noise_percent % от текущего значения).
 """
 import math
 import random
-import time
 
 
 class MotorSimModel:
-    """
-    Простая модель ротора с инерцией.
-
-    Уравнение движения:
-        J * dω/dt = τ_drive - τ_friction
-
-    где:
-        J           — момент инерции [кг·м²]
-        τ_drive     — момент движущей силы (пропорционален уставке)
-        τ_friction  — момент трения (пропорционален ω)
-    """
-
     def __init__(self):
-        # Параметры диска
-        self.disk_diameter_mm: float = 75.0   # мм
-        self.disk_mass_g: float = 50.0        # г
-        self.slots: int = 20                  # прорезей
+        # Параметры диска/датчика (заполняются из сценария)
+        self.disk_diameter_mm: float = 75.0
+        self.slots: int = 20
 
-        # Параметры двигателя
-        self.target_rps: float = 0.0          # уставка об/с
-        self.max_rps: float = 50.0            # максимум об/с
-        self.torque_k: float = 2.0            # коэф. момента привода
-        self.friction_k: float = 0.3          # коэф. трения
-        self.inertia_scale: float = 1.0       # масштаб инерции (0.1–5.0)
+        # Реостат: 0–100 %
+        self.rheostat_pct: float = 0.0
 
-        # Параметры шума датчика
-        self.noise_percent: float = 1.0       # % от текущего значения
-        self.sensor_jitter_ms: float = 2.0    # джиттер измерения, мс
+        # Диапазон скоростей установки
+        self.max_rps: float = 10.0          # об/с при реостате 100%
 
-        # Внутреннее состояние
-        self._omega: float = 0.0              # рад/с
-        self._last_time: float = time.monotonic()
+        # Шум датчика
+        self.noise_percent: float = 1.0     # % от текущего значения
 
     # ---------------------------------------------------------------- props --
 
     @property
-    def disk_radius_m(self) -> float:
-        return (self.disk_diameter_mm / 2.0) / 1000.0
+    def target_rps(self) -> float:
+        """Текущая целевая скорость (об/с) по положению реостата."""
+        return self.max_rps * self.rheostat_pct / 100.0
 
     @property
-    def inertia(self) -> float:
-        """Момент инерции тонкого диска: J = 0.5 * m * r²"""
-        m = (self.disk_mass_g / 1000.0) * self.inertia_scale
-        return 0.5 * m * self.disk_radius_m ** 2
-
-    @property
-    def omega(self) -> float:
-        return self._omega
-
-    @property
-    def rps(self) -> float:
-        return self._omega / (2.0 * math.pi)
-
-    @property
-    def rpm(self) -> float:
-        return self.rps * 60.0
-
-    @property
-    def rad_s(self) -> float:
-        return self._omega
+    def target_omega(self) -> float:
+        """Текущая целевая угловая скорость (рад/с)."""
+        return self.target_rps * 2.0 * math.pi
 
     # ---------------------------------------------------------------- step --
 
     def step(self) -> float:
-        """Шаг симуляции. Возвращает текущую угловую скорость (рад/с) с шумом."""
-        now = time.monotonic()
-        dt = now - self._last_time
-        self._last_time = now
-
-        dt = max(min(dt, 0.2), 1e-4)
-
-        target_omega = self.target_rps * 2.0 * math.pi
-        tau_drive = self.torque_k * (target_omega - self._omega)
-        tau_friction = self.friction_k * self._omega
-
-        J = max(self.inertia, 1e-9)
-        domega = (tau_drive - tau_friction) / J * dt
-        self._omega = max(0.0, self._omega + domega)
-
-        # Ограничение максимума
-        max_omega = self.max_rps * 2.0 * math.pi
-        self._omega = min(self._omega, max_omega)
-
-        # Шум
-        noise = self._omega * (self.noise_percent / 100.0) * random.gauss(0, 1)
-        measured = max(0.0, self._omega + noise)
-
-        return measured
+        """Возвращает текущую угловую скорость (рад/с) с шумом датчика."""
+        omega = self.target_omega
+        if omega > 0 and self.noise_percent > 0:
+            noise = omega * (self.noise_percent / 100.0) * random.gauss(0, 1)
+            omega = max(0.0, omega + noise)
+        return omega
 
     def reset(self):
-        self._omega = 0.0
-        self._last_time = time.monotonic()
+        pass  # состояния нет — сброс не нужен

@@ -1,14 +1,17 @@
 """
-Панель настроек симуляции: параметры диска, двигателя, шума датчика.
+Панель управления симуляцией: реостат + текущая скорость.
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox,
-    QDoubleSpinBox, QSpinBox, QSlider, QLabel, QHBoxLayout,
-    QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QPushButton, QGroupBox,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont
 
 from core.motor_sim import MotorSimModel
+
+C_ACCENT = "#a6e3a1"
+C_TEXT   = "#cdd6f4"
+C_BG2    = "#181825"
 
 
 class SimSettingsPanel(QWidget):
@@ -22,170 +25,114 @@ class SimSettingsPanel(QWidget):
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(10)
+        root.setSpacing(14)
 
-        # ── Управление двигателем ────────────────────────────────────────
-        grp_motor = QGroupBox("Управление двигателем")
-        lay_motor = QVBoxLayout(grp_motor)
+        # ── Заголовок ────────────────────────────────────────────────────
+        lbl_title = QLabel("Реостат")
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        lbl_title.setStyleSheet(f"color: {C_TEXT};")
+        root.addWidget(lbl_title)
 
-        # Слайдер скорости
-        spd_row = QHBoxLayout()
-        lbl_spd = QLabel("Скорость:")
-        spd_row.addWidget(lbl_spd)
+        # ── Слайдер реостата ─────────────────────────────────────────────
+        grp = QGroupBox("Положение реостата")
+        lay = QVBoxLayout(grp)
+        lay.setSpacing(8)
 
-        self._slider_rps = QSlider(Qt.Orientation.Horizontal)
-        self._slider_rps.setRange(0, 500)   # 0–50.0 рпс × 10
-        self._slider_rps.setValue(0)
-        self._slider_rps.setTickInterval(50)
-        self._slider_rps.setTickPosition(QSlider.TickPosition.TicksBelow)
-        spd_row.addWidget(self._slider_rps)
+        # Метка процента
+        self._lbl_pct = QLabel("0 %")
+        self._lbl_pct.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_pct.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        self._lbl_pct.setStyleSheet(f"color: {C_ACCENT};")
+        lay.addWidget(self._lbl_pct)
 
-        self._lbl_rps_val = QLabel("0.0 об/с")
-        self._lbl_rps_val.setMinimumWidth(80)
-        spd_row.addWidget(self._lbl_rps_val)
+        # Вертикальный слайдер (как реостат)
+        self._slider = QSlider(Qt.Orientation.Vertical)
+        self._slider.setRange(0, 100)
+        self._slider.setValue(0)
+        self._slider.setTickInterval(10)
+        self._slider.setTickPosition(QSlider.TickPosition.TicksRight)
+        self._slider.setMinimumHeight(180)
+        self._slider.setStyleSheet("""
+            QSlider::groove:vertical {
+                background: #313244;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QSlider::handle:vertical {
+                background: #cba6f7;
+                height: 20px;
+                width: 20px;
+                margin: 0 -6px;
+                border-radius: 10px;
+            }
+            QSlider::sub-page:vertical {
+                background: #a6e3a1;
+                border-radius: 4px;
+            }
+        """)
 
-        lay_motor.addLayout(spd_row)
+        # Метки шкалы
+        scale_lay = QHBoxLayout()
+        slider_wrap = QHBoxLayout()
 
-        # Точная уставка
-        form_motor = QFormLayout()
-        self._spin_target_rps = QDoubleSpinBox()
-        self._spin_target_rps.setRange(0.0, 50.0)
-        self._spin_target_rps.setDecimals(2)
-        self._spin_target_rps.setSuffix(" об/с")
-        self._spin_target_rps.setSingleStep(0.5)
-        form_motor.addRow("Уставка:", self._spin_target_rps)
+        lbl_scale = QVBoxLayout()
+        for v in [100, 75, 50, 25, 0]:
+            lbl = QLabel(f"{v}")
+            lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            lbl_scale.addWidget(lbl)
 
-        self._spin_max_rps = QDoubleSpinBox()
-        self._spin_max_rps.setRange(1.0, 200.0)
-        self._spin_max_rps.setDecimals(1)
-        self._spin_max_rps.setSuffix(" об/с")
-        self._spin_max_rps.setValue(self._model.max_rps)
-        form_motor.addRow("Максимум:", self._spin_max_rps)
+        slider_wrap.addStretch()
+        slider_wrap.addWidget(self._slider)
+        slider_wrap.addLayout(lbl_scale)
+        slider_wrap.addStretch()
+        lay.addLayout(slider_wrap)
 
-        self._spin_inertia = QDoubleSpinBox()
-        self._spin_inertia.setRange(0.1, 10.0)
-        self._spin_inertia.setDecimals(2)
-        self._spin_inertia.setSingleStep(0.1)
-        self._spin_inertia.setValue(self._model.inertia_scale)
-        form_motor.addRow("Инерция (×):", self._spin_inertia)
+        root.addWidget(grp)
 
-        self._spin_torque = QDoubleSpinBox()
-        self._spin_torque.setRange(0.1, 20.0)
-        self._spin_torque.setDecimals(2)
-        self._spin_torque.setSingleStep(0.1)
-        self._spin_torque.setValue(self._model.torque_k)
-        form_motor.addRow("Момент привода:", self._spin_torque)
+        # ── Текущая скорость ─────────────────────────────────────────────
+        grp_spd = QGroupBox("Текущая скорость")
+        spd_lay = QVBoxLayout(grp_spd)
 
-        self._spin_friction = QDoubleSpinBox()
-        self._spin_friction.setRange(0.01, 5.0)
-        self._spin_friction.setDecimals(3)
-        self._spin_friction.setSingleStep(0.05)
-        self._spin_friction.setValue(self._model.friction_k)
-        form_motor.addRow("Трение:", self._spin_friction)
+        self._lbl_rps = QLabel("0.00 об/с")
+        self._lbl_rps.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_rps.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        self._lbl_rps.setStyleSheet(f"color: {C_ACCENT};")
+        spd_lay.addWidget(self._lbl_rps)
 
-        lay_motor.addLayout(form_motor)
-        root.addWidget(grp_motor)
+        self._lbl_rpm = QLabel("0.0 RPM")
+        self._lbl_rpm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_rpm.setStyleSheet(f"color: #6c7086; font-size: 11px;")
+        spd_lay.addWidget(self._lbl_rpm)
 
-        # ── Параметры диска ──────────────────────────────────────────────
-        grp_disk = QGroupBox("Параметры диска")
-        form_disk = QFormLayout(grp_disk)
+        root.addWidget(grp_spd)
 
-        self._spin_diameter = QDoubleSpinBox()
-        self._spin_diameter.setRange(10.0, 500.0)
-        self._spin_diameter.setDecimals(1)
-        self._spin_diameter.setSuffix(" мм")
-        self._spin_diameter.setValue(self._model.disk_diameter_mm)
-        form_disk.addRow("Диаметр:", self._spin_diameter)
-
-        self._spin_mass = QDoubleSpinBox()
-        self._spin_mass.setRange(1.0, 2000.0)
-        self._spin_mass.setDecimals(1)
-        self._spin_mass.setSuffix(" г")
-        self._spin_mass.setValue(self._model.disk_mass_g)
-        form_disk.addRow("Масса:", self._spin_mass)
-
-        self._spin_slots = QSpinBox()
-        self._spin_slots.setRange(1, 360)
-        self._spin_slots.setValue(self._model.slots)
-        form_disk.addRow("Прорезей:", self._spin_slots)
-
-        root.addWidget(grp_disk)
-
-        # ── Параметры датчика ────────────────────────────────────────────
-        grp_noise = QGroupBox("Параметры датчика / шум")
-        form_noise = QFormLayout(grp_noise)
-
-        self._spin_noise = QDoubleSpinBox()
-        self._spin_noise.setRange(0.0, 20.0)
-        self._spin_noise.setDecimals(2)
-        self._spin_noise.setSuffix(" %")
-        self._spin_noise.setValue(self._model.noise_percent)
-        form_noise.addRow("Уровень шума:", self._spin_noise)
-
-        self._spin_jitter = QDoubleSpinBox()
-        self._spin_jitter.setRange(0.0, 50.0)
-        self._spin_jitter.setDecimals(1)
-        self._spin_jitter.setSuffix(" мс")
-        self._spin_jitter.setValue(self._model.sensor_jitter_ms)
-        form_noise.addRow("Джиттер:", self._spin_jitter)
-
-        root.addWidget(grp_noise)
-
-        # ── Кнопка стоп ─────────────────────────────────────────────────
-        self._btn_stop = QPushButton("⏹  Стоп (ω → 0)")
+        # ── Кнопка стоп ──────────────────────────────────────────────────
+        self._btn_stop = QPushButton("⏹  Стоп")
         self._btn_stop.clicked.connect(self._on_stop)
         root.addWidget(self._btn_stop)
 
         root.addStretch()
 
         # ── Связи ────────────────────────────────────────────────────────
-        self._slider_rps.valueChanged.connect(self._on_slider)
-        self._spin_target_rps.valueChanged.connect(self._on_spin_rps)
-        self._spin_max_rps.valueChanged.connect(self._apply)
-        self._spin_inertia.valueChanged.connect(self._apply)
-        self._spin_torque.valueChanged.connect(self._apply)
-        self._spin_friction.valueChanged.connect(self._apply)
-        self._spin_diameter.valueChanged.connect(self._apply)
-        self._spin_mass.valueChanged.connect(self._apply)
-        self._spin_slots.valueChanged.connect(self._apply)
-        self._spin_noise.valueChanged.connect(self._apply)
-        self._spin_jitter.valueChanged.connect(self._apply)
+        self._slider.valueChanged.connect(self._on_slider)
 
     # --------------------------------------------------------------- slots --
 
     def _on_slider(self, val: int):
-        rps = val / 10.0
-        self._spin_target_rps.blockSignals(True)
-        self._spin_target_rps.setValue(rps)
-        self._spin_target_rps.blockSignals(False)
-        self._lbl_rps_val.setText(f"{rps:.1f} об/с")
-        self._apply()
-
-    def _on_spin_rps(self, val: float):
-        self._slider_rps.blockSignals(True)
-        self._slider_rps.setValue(int(val * 10))
-        self._slider_rps.blockSignals(False)
-        self._lbl_rps_val.setText(f"{val:.1f} об/с")
-        self._apply()
+        self._model.rheostat_pct = float(val)
+        self._lbl_pct.setText(f"{val} %")
+        rps = self._model.target_rps
+        self._lbl_rps.setText(f"{rps:.2f} об/с")
+        self._lbl_rpm.setText(f"{rps * 60:.1f} RPM")
+        self.settings_changed.emit()
 
     def _on_stop(self):
-        self._spin_target_rps.setValue(0.0)
+        self._slider.setValue(0)
 
-    def _apply(self):
-        m = self._model
-        m.target_rps = self._spin_target_rps.value()
-        m.max_rps = self._spin_max_rps.value()
-        m.inertia_scale = self._spin_inertia.value()
-        m.torque_k = self._spin_torque.value()
-        m.friction_k = self._spin_friction.value()
-        m.disk_diameter_mm = self._spin_diameter.value()
-        m.disk_mass_g = self._spin_mass.value()
-        m.slots = self._spin_slots.value()
-        m.noise_percent = self._spin_noise.value()
-        m.sensor_jitter_ms = self._spin_jitter.value()
-
-        # Обновить максимум слайдера
-        max_val = int(m.max_rps * 10)
-        self._slider_rps.setMaximum(max_val)
-
-        self.settings_changed.emit()
+    def update_speed_display(self, omega_rad_s: float):
+        """Вызывается из ExperimentWidget при каждом новом сэмпле."""
+        rps = omega_rad_s / (2 * 3.141592653589793)
+        self._lbl_rps.setText(f"{rps:.2f} об/с")
+        self._lbl_rpm.setText(f"{rps * 60:.1f} RPM")
