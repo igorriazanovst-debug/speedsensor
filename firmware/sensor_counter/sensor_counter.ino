@@ -14,7 +14,7 @@ using namespace Adafruit_LittleFS_Namespace;
 
 // === Идентификация датчика ===
 // Пароль задаётся здесь, на этапе компиляции. По Serial никогда не передаётся.
-#define ADMIN_PASSWORD  "change_me_before_flash"
+#define ADMIN_PASSWORD  "karamba"
 #define META_FILE       "/sensor_meta.txt"
 
 #define KEY_NAME      "SENSOR_NAME"
@@ -24,7 +24,7 @@ using namespace Adafruit_LittleFS_Namespace;
 // Значения по умолчанию (если файл не найден или поле отсутствует)
 #define DEFAULT_NAME      "Датчик угловой скорости"
 #define DEFAULT_PURPOSE   "Измерение угловой скорости"
-#define DEFAULT_SCENARIOS "1,2,3"
+#define DEFAULT_SCENARIOS "1,2,3,4"
 
 // === Period-based measurement ===
 #define PULSE_BUF_SIZE  8        // усреднение по 8 последним импульсам

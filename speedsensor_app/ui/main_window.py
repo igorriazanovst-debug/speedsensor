@@ -24,17 +24,22 @@ from PySide6.QtCore import Qt
 
 from core.settings import AppSettings
 from scenarios.scenarios import Scenario
+import os
+
 from ui.scenarios_widget import ScenariosWidget
 from ui.mode_selector import ModeSelectorWidget, MODE_SENSOR, MODE_SIMULATION
 from ui.sensor_connect_widget import SensorConnectWidget
 from ui.experiment_widget import ExperimentWidget
+from ui.home_widget import HomeWidget
+from core.port_scanner import PortScanner
 
 LANG_OPTIONS = [("Русский", "ru"), ("English", "en")]
 
-IDX_SCENARIOS = 0
-IDX_MODE      = 1
-IDX_CONNECT   = 2
-IDX_EXPERIMENT = 3
+IDX_HOME       = 0
+IDX_SCENARIOS  = 1
+IDX_MODE       = 2
+IDX_CONNECT    = 3
+IDX_EXPERIMENT = 4
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +78,15 @@ class MainWindow(QMainWindow):
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
+        # Shared PortScanner (используется HomeWidget и SensorConnectWidget)
+        self._shared_scanner = PortScanner(self)
+        self._shared_scanner.start()
+
+        # Вкладка «Главная»
+        _scenarios_dir = os.path.join(os.path.dirname(__file__), "..", "scenarios")
+        self._home_widget = HomeWidget(self._shared_scanner, _scenarios_dir)
+        self._tabs.addTab(self._home_widget, "🏠  Главная")
+
         # Вкладка «Сценарии» — содержит QStackedWidget для экранов эксперимента
         scenarios_outer = QWidget()
         outer_lay = QVBoxLayout(scenarios_outer)
@@ -98,7 +112,7 @@ class MainWindow(QMainWindow):
         self._mode_selector.mode_selected.connect(self._on_mode_selected)
         self._stack_exp.addWidget(self._mode_selector)            # IDX_MODE=0
 
-        self._sensor_connect = SensorConnectWidget()
+        self._sensor_connect = SensorConnectWidget(scanner=self._shared_scanner)
         self._sensor_connect.connected.connect(self._on_sensor_connected)
         self._sensor_connect.back_requested.connect(self._on_back_to_mode)
         self._stack_exp.addWidget(self._sensor_connect)           # IDX_CONNECT=1
@@ -139,7 +153,7 @@ class MainWindow(QMainWindow):
     def _on_scenario_launched(self, scenario: Scenario):
         self._current_scenario = scenario
         self._stack_exp.setCurrentIndex(0)   # показать выбор режима
-        self._tabs.setCurrentIndex(1)         # переключить на вкладку эксперимента
+        self._tabs.setCurrentIndex(2)         # переключить на вкладку эксперимента
         self._status.showMessage(f"Сценарий: {scenario.name(self._lang)}")
 
     def _on_mode_selected(self, mode: str):
@@ -150,9 +164,7 @@ class MainWindow(QMainWindow):
             )
             self._stack_exp.setCurrentIndex(2)   # → эксперимент
         else:
-            # Перезапустить сканер при каждом входе
-            self._sensor_connect._scanner.start()
-            self._sensor_connect._set_state_searching()
+            self._sensor_connect.sync_state()
             self._stack_exp.setCurrentIndex(1)   # → подключение датчика
 
     def _on_sensor_connected(self, port: str, baud: int):
@@ -175,8 +187,8 @@ class MainWindow(QMainWindow):
         self._lang = self._cb_lang.itemData(idx)
         self._settings.set("language", self._lang)
         self._scenarios_widget.set_language(self._lang)
-        tab_ru = ["📋  Сценарии", "📈  Эксперимент", "🔬  Обработка", "🌊  Моделирование"]
-        tab_en = ["📋  Scenarios", "📈  Experiment",  "🔬  Processing", "🌊  Fluid Sim"]
+        tab_ru = ["🏠  Главная", "📋  Сценарии", "📈  Эксперимент", "🔬  Обработка", "🌊  Моделирование"]
+        tab_en = ["🏠  Home",    "📋  Scenarios", "📈  Experiment",  "🔬  Processing", "🌊  Fluid Sim"]
         for i, lbl in enumerate(tab_ru if self._lang == "ru" else tab_en):
             self._tabs.setTabText(i, lbl)
 

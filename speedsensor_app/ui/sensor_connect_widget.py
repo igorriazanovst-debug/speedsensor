@@ -68,18 +68,20 @@ class SensorConnectWidget(QWidget):
     connected     = Signal(str, int)   # (port, baud)
     back_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, scanner: "PortScanner | None" = None, parent=None):
         super().__init__(parent)
         self._confirmed_port: PortInfo | None = None
+        self._scanner_is_shared = scanner is not None
 
-        self._scanner = PortScanner(self)
+        self._scanner = scanner if scanner is not None else PortScanner(self)
         self._scanner.ports_updated.connect(self._on_ports_updated)
         self._scanner.sensor_found.connect(self._on_sensor_found)
         self._scanner.sensor_lost.connect(self._on_sensor_lost)
 
         self._build_ui()
         self._set_state_searching()
-        self._scanner.start()
+        if not self._scanner_is_shared:
+            self._scanner.start()
 
     # ================================================================= UI ==
 
@@ -283,14 +285,10 @@ class SensorConnectWidget(QWidget):
         import threading
 
         def do_probe():
-            ok = _probe_port(port)
-            # Вернуться в UI-поток
-            if ok:
-                from PySide6.QtCore import QMetaObject, Q_ARG
-                info = PortInfo(device=port, description="ручное подключение",
-                                vid=None, pid=None, confirmed=True)
-                self._confirmed_port = info
-                self._on_sensor_found(info)
+            result = _probe_port(port)
+            if result is not None:
+                self._confirmed_port = result
+                self._on_sensor_found(result)
             else:
                 self._set_state_error(
                     f"Порт {port} не отвечает.\n"
@@ -302,9 +300,37 @@ class SensorConnectWidget(QWidget):
 
     def _on_start(self):
         if self._confirmed_port:
-            self._scanner.stop()
+            if not self._scanner_is_shared:
+                self._scanner.stop()
             self.connected.emit(self._confirmed_port.device, 115200)
 
+    def sync_state(self):
+        """Синхронизировать UI с текущим состоянием shared scanner.
+        Вызывается из MainWindow при каждом показе этого экрана."""
+        confirmed = self._scanner.confirmed_port
+        if confirmed:
+            self._confirmed_port = confirmed
+            # Убедиться что порт есть в комбобоксе
+            found = False
+            for i in range(self._cb_port.count()):
+                if self._cb_port.itemData(i) == confirmed.device:
+                    self._cb_port.setCurrentIndex(i)
+                    found = True
+                    break
+            if not found:
+                self._cb_port.addItem(
+                    f"{confirmed.device}  —  {confirmed.description or 'датчик'}",
+                    confirmed.device,
+                )
+                self._cb_port.setCurrentIndex(self._cb_port.count() - 1)
+            self._set_state_connected(confirmed)
+        else:
+            self._confirmed_port = None
+            self._set_state_searching()
+            # Принудительно обновить список портов из последнего скана
+            self._scanner._scan()
+
     def _on_back(self):
-        self._scanner.stop()
+        if not self._scanner_is_shared:
+            self._scanner.stop()
         self.back_requested.emit()

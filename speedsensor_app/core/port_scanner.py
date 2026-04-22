@@ -14,7 +14,7 @@ from PySide6.QtCore import QObject, Signal, QTimer
 
 PROBE_BAUD    = 115200
 PROBE_TIMEOUT = 0.5   # сек на ожидание ответа
-PROBE_MARKER  = ("speedsensor", "rps:", "pulses:")   # строки в нижнем регистре
+PROBE_MARKER  = ("speedsensor", "rps:", "pulses:", "name:", "purpose:")   # строки в нижнем регистре
 SCAN_INTERVAL = 2000  # мс между сканированиями
 
 
@@ -24,7 +24,10 @@ class PortInfo:
     description: str
     vid: int | None
     pid: int | None
-    confirmed: bool = False   # True — ответил на probe
+    confirmed: bool = False        # True — ответил на probe
+    sensor_name: str = ""         # парсится из "Name: ..."
+    sensor_purpose: str = ""      # парсится из "Purpose: ..."
+    sensor_scenarios: str = ""    # парсится из "Scenarios: ..."
 
 
 class PortScanner(QObject):
@@ -99,29 +102,57 @@ class PortScanner(QObject):
         for info in ports:
             if self._confirmed:
                 break
-            confirmed = _probe_port(info.device)
-            if confirmed:
-                info.confirmed = True
+            result = _probe_port(info.device)
+            if result is not None:
+                result.confirmed = True
                 with self._lock:
                     if self._confirmed is None:
-                        self._confirmed = info
-                        self.sensor_found.emit(info)
+                        self._confirmed = result
+                        self.sensor_found.emit(result)
 
 
-def _probe_port(device: str) -> bool:
-    """Пытается открыть порт и получить ответ от прошивки."""
+def _probe_port(device: str) -> "PortInfo | None":
+    """Пытается открыть порт и получить ответ от прошивки.
+    Возвращает заполненный PortInfo или None."""
     try:
         with serial.Serial(device, PROBE_BAUD, timeout=PROBE_TIMEOUT) as ser:
             ser.reset_input_buffer()
             ser.write(b"i\n")
             deadline = time.monotonic() + PROBE_TIMEOUT
+            buf = ""
             while time.monotonic() < deadline:
-                line = ser.readline().decode("utf-8", errors="ignore").lower()
-                if any(m in line for m in PROBE_MARKER):
-                    return True
-            # Попробуем просто почитать — вдруг уже льёт данные
-            ser.write(b"\n")
-            line = ser.readline().decode("utf-8", errors="ignore").lower()
-            return any(m in line for m in PROBE_MARKER)
+                chunk = ser.read(ser.in_waiting or 1).decode("utf-8", errors="ignore")
+                buf += chunk
+                if any(m in buf.lower() for m in PROBE_MARKER):
+                    break
+            else:
+                # Попробуем ещё раз — вдруг уже льёт данные
+                ser.write(b"\n")
+                line = ser.readline().decode("utf-8", errors="ignore")
+                buf += line
+                if not any(m in buf.lower() for m in PROBE_MARKER):
+                    return None
+            # Парсим идентификационные поля
+            name = ""
+            purpose = ""
+            scenarios = ""
+            for line in buf.splitlines():
+                ls = line.strip()
+                if ls.lower().startswith("name:"):
+                    name = ls[5:].strip()
+                elif ls.lower().startswith("purpose:"):
+                    purpose = ls[8:].strip()
+                elif ls.lower().startswith("scenarios:"):
+                    scenarios = ls[10:].strip()
+            return PortInfo(
+                device=device,
+                description="",
+                vid=None,
+                pid=None,
+                confirmed=True,
+                sensor_name=name,
+                sensor_purpose=purpose,
+                sensor_scenarios=scenarios,
+            )
     except Exception:
-        return False
+        return None

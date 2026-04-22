@@ -72,6 +72,16 @@ BUILTIN_SCENARIOS: list[Scenario] = [
         sensor=SensorConfig(sample_rate_hz=50),
         has_simulation=True,
     ),
+    Scenario(
+        id="rotation_demo",
+        name_ru="Демонстрационная установка «Вращательное движение»",
+        name_en="Rotational Motion Demo",
+        description_ru="Демонстрация вращательного движения на лабораторном стенде.",
+        description_en="Demonstration of rotational motion on a lab stand.",
+        unit=UNIT_RAD_S,
+        interval_ms=100,
+        sensor=SensorConfig(sample_rate_hz=50),
+    ),
 ]
 
 
