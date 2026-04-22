@@ -26,18 +26,9 @@ using namespace Adafruit_LittleFS_Namespace;
 #define DEFAULT_PURPOSE   "Измерение угловой скорости"
 #define DEFAULT_SCENARIOS "1,2,3"
 
-// === Period-based measurement ===
-#define PULSE_BUF_SIZE  8        // усреднение по 8 последним импульсам
-#define TIMEOUT_US      500000UL // 500 мс без импульсов → RPS = 0
-
 // ===========================
 
-// Кольцевой буфер меток времени импульсов (микросекунды)
-volatile uint32_t pulseTimes[PULSE_BUF_SIZE];
-volatile uint8_t  pulseBufHead  = 0;
-volatile uint8_t  pulseBufCount = 0;
-volatile uint32_t lastPulseUs   = 0;
-
+volatile uint32_t pulseCount = 0;
 uint32_t lastReport = 0;
 
 String g_sensor_name;
@@ -181,56 +172,10 @@ void handleWrite(const String& line) {
   // При ошибке записи — молчим (не раскрываем информацию)
 }
 
-
 // -------------------------------------------------- ISR --
 
 void onPulse() {
-  uint32_t t = micros();
-  pulseTimes[pulseBufHead] = t;
-  pulseBufHead = (pulseBufHead + 1) % PULSE_BUF_SIZE;
-  if (pulseBufCount < PULSE_BUF_SIZE) pulseBufCount++;
-  lastPulseUs = t;
-}
-
-// -------------------------------------------------- RPS calculation --
-
-// Вычисляет RPS по кольцевому буферу меток времени.
-// Возвращает 0 если данных нет или таймаут.
-float calcRPS() {
-  noInterrupts();
-  uint8_t  count      = pulseBufCount;
-  uint32_t lastPulse  = lastPulseUs;
-  uint8_t  head       = pulseBufHead;
-
-  // Копируем буфер
-  uint32_t buf[PULSE_BUF_SIZE];
-  for (uint8_t i = 0; i < PULSE_BUF_SIZE; i++) buf[i] = pulseTimes[i];
-  interrupts();
-
-  // Таймаут: давно не было импульсов
-  if (count == 0) return 0.0f;
-  if ((uint32_t)(micros() - lastPulse) > TIMEOUT_US) return 0.0f;
-
-  // Нужно минимум 2 точки для вычисления периода
-  if (count < 2) return 0.0f;
-
-  // Индексы: самый старый и самый новый элемент в кольцевом буфере
-  uint8_t n        = count < PULSE_BUF_SIZE ? count : PULSE_BUF_SIZE;
-  uint8_t newestIdx = (head + PULSE_BUF_SIZE - 1) % PULSE_BUF_SIZE;
-  uint8_t oldestIdx = (head + PULSE_BUF_SIZE - n) % PULSE_BUF_SIZE;
-
-  uint32_t newest = buf[newestIdx];
-  uint32_t oldest = buf[oldestIdx];
-
-  // Интервал между крайними точками (мкс), n-1 периодов между n импульсами
-  uint32_t spanUs = newest - oldest; // uint32 корректно обрабатывает переполнение
-  if (spanUs == 0) return 0.0f;
-
-  // Среднее время одного периода диска (один оборот = SLOTS импульсов)
-  // period_per_slot_us = spanUs / (n - 1)
-  // rps = 1 / (period_per_slot_us * SLOTS / 1e6)
-  float rps = (float)(n - 1) * 1e6f / ((float)spanUs * SLOTS);
-  return rps;
+  pulseCount++;
 }
 
 // -------------------------------------------------- Setup --
@@ -266,21 +211,16 @@ void loop() {
       // пустая строка — игнорируем
     } else if (line[0] == 't') {
       noInterrupts();
-      uint32_t lp = lastPulseUs;
-      uint8_t  bc = pulseBufCount;
+      uint32_t cnt = pulseCount;
       interrupts();
       int pinState = digitalRead(SENSOR_PIN);
       Serial.print("[TEST] Pin=");
       Serial.print(pinState == HIGH ? "HIGH (свободно)" : "LOW (перекрыто)");
-      Serial.print(" | Импульсов в буфере: ");
-      Serial.print(bc);
-      Serial.print(" | RPS: ");
-      Serial.println(calcRPS(), 3);
+      Serial.print(" | Импульсов: ");
+      Serial.println(cnt);
     } else if (line[0] == 'r') {
       noInterrupts();
-      pulseBufCount = 0;
-      pulseBufHead  = 0;
-      lastPulseUs   = 0;
+      pulseCount = 0;
       interrupts();
       Serial.println("[RESET] Счётчик сброшен.");
     } else if (line[0] == 'i') {
@@ -298,17 +238,17 @@ void loop() {
   if (elapsed >= REPORT_MS) {
     lastReport = now;
 
-    float rps          = calcRPS();
+    noInterrupts();
+    uint32_t count = pulseCount;
+    pulseCount = 0;
+    interrupts();
+
+    float rps          = (float)count / SLOTS / (elapsed / 1000.0f);
     float rpm          = rps * 60.0f;
     float circumference = 3.14159f * DISK_DIAM_MM;
     float linear_mm_s  = circumference * rps;
 
-    // Pulses: поле оставляем для совместимости с ПО, выводим накопленный счёт в буфере
-    noInterrupts();
-    uint8_t bc = pulseBufCount;
-    interrupts();
-
-    Serial.print("Pulses: ");  Serial.print(bc);
+    Serial.print("Pulses: ");  Serial.print(count);
     Serial.print(" | RPS: ");  Serial.print(rps, 3);
     Serial.print(" | RPM: ");  Serial.print(rpm, 1);
     Serial.print(" | V: ");    Serial.print(linear_mm_s, 1);
