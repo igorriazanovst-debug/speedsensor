@@ -28,6 +28,7 @@ class PortInfo:
     sensor_name: str = ""         # парсится из "Name: ..."
     sensor_purpose: str = ""      # парсится из "Purpose: ..."
     sensor_scenarios: str = ""    # парсится из "Scenarios: ..."
+    sensor_serial: str = ""       # парсится из "Serial: ..."
 
 
 class PortScanner(QObject):
@@ -136,9 +137,12 @@ def _probe_port(device: str) -> "PortInfo | None":
             name = ""
             purpose = ""
             scenarios = ""
+            serial_num = ""
             for line in buf.splitlines():
                 ls = line.strip()
-                if ls.lower().startswith("name:"):
+                if ls.lower().startswith("serial:"):
+                    serial_num = ls[7:].strip()
+                elif ls.lower().startswith("name:"):
                     name = ls[5:].strip()
                 elif ls.lower().startswith("purpose:"):
                     purpose = ls[8:].strip()
@@ -153,6 +157,7 @@ def _probe_port(device: str) -> "PortInfo | None":
                 sensor_name=name,
                 sensor_purpose=purpose,
                 sensor_scenarios=scenarios,
+                sensor_serial=serial_num,
             )
     except Exception:
         return None

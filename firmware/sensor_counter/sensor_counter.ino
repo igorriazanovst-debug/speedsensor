@@ -1,6 +1,7 @@
 #include <Adafruit_TinyUSB.h>
 #include <InternalFileSystem.h>
 #include <Adafruit_LittleFS.h>
+#include "sensor_config.h"
 
 using namespace Adafruit_LittleFS_Namespace;
 
@@ -20,11 +21,12 @@ using namespace Adafruit_LittleFS_Namespace;
 #define KEY_NAME      "SENSOR_NAME"
 #define KEY_PURPOSE   "SENSOR_PURPOSE"
 #define KEY_SCENARIOS "SENSOR_SCENARIOS"
+#define KEY_SERIAL    "SENSOR_SERIAL"
 
-// Значения по умолчанию (если файл не найден или поле отсутствует)
-#define DEFAULT_NAME      "Датчик угловой скорости"
-#define DEFAULT_PURPOSE   "Измерение угловой скорости"
-#define DEFAULT_SCENARIOS "1,2,3,4"
+// Значения по умолчанию берутся из sensor_config.h
+#define DEFAULT_NAME      CFG_NAME
+#define DEFAULT_PURPOSE   CFG_PURPOSE
+#define DEFAULT_SCENARIOS CFG_SCENARIOS
 
 // === Period-based measurement ===
 #define PULSE_BUF_SIZE  8        // усреднение по 8 последним импульсам
@@ -43,6 +45,7 @@ uint32_t lastReport = 0;
 String g_sensor_name;
 String g_sensor_purpose;
 String g_sensor_scenarios;
+String g_sensor_serial;
 
 // -------------------------------------------------- Flash helpers --
 
@@ -72,10 +75,27 @@ String setField(const String& content, const String& key, const String& value) {
   return content.substring(0, idx) + newLine + content.substring(end + 1);
 }
 
+// -------------------------------------------------- Serial number --
+
+// Читает 64-битный уникальный ID из FICR и возвращает HEX-строку (16 символов)
+String readFICR() {
+  uint32_t lo = NRF_FICR->DEVICEID[0];
+  uint32_t hi = NRF_FICR->DEVICEID[1];
+  char buf[17];
+  snprintf(buf, sizeof(buf), "%08X%08X", (unsigned int)hi, (unsigned int)lo);
+  return String(buf);
+}
+
+// Формирует серийный номер: <FICR_ID>-<SENSOR_INSTANCE>
+String buildSerial() {
+  return readFICR() + "-" + SENSOR_INSTANCE;
+}
+
 void loadMeta() {
   g_sensor_name      = DEFAULT_NAME;
   g_sensor_purpose   = DEFAULT_PURPOSE;
   g_sensor_scenarios = DEFAULT_SCENARIOS;
+  g_sensor_serial    = buildSerial();   // всегда вычисляется из FICR
 
   File file(InternalFS);
   if (!file.open(META_FILE, FILE_O_READ)) return;
@@ -90,6 +110,8 @@ void loadMeta() {
   v = parseField(content, KEY_NAME);      if (v.length()) g_sensor_name = v;
   v = parseField(content, KEY_PURPOSE);   if (v.length()) g_sensor_purpose = v;
   v = parseField(content, KEY_SCENARIOS); if (v.length()) g_sensor_scenarios = v;
+  // Серийник из flash (если был записан ранее); иначе остаётся buildSerial()
+  v = parseField(content, KEY_SERIAL);    if (v.length()) g_sensor_serial = v;
 }
 
 bool saveMeta() {
@@ -105,6 +127,7 @@ bool saveMeta() {
   content = setField(content, KEY_NAME,      g_sensor_name);
   content = setField(content, KEY_PURPOSE,   g_sensor_purpose);
   content = setField(content, KEY_SCENARIOS, g_sensor_scenarios);
+  content = setField(content, KEY_SERIAL,    g_sensor_serial);
 
   // Удаляем старый файл и пишем новый
   InternalFS.remove(META_FILE);
@@ -126,11 +149,13 @@ void printHelp() {
   Serial.println("  h                        - помощь");
   Serial.println("  W:<pw>:<key>:<value>     - записать поле (требует пароль)");
   Serial.println("    ключи: SENSOR_NAME | SENSOR_PURPOSE | SENSOR_SCENARIOS");
+  Serial.println("    (SENSOR_SERIAL формируется автоматически, изменить нельзя)");
   Serial.println("---");
 }
 
 void printSensorInfo() {
   Serial.println("--- SENSOR INFO ---");
+  Serial.print("Serial: ");    Serial.println(g_sensor_serial);
   Serial.print("Name: ");      Serial.println(g_sensor_name);
   Serial.print("Purpose: ");   Serial.println(g_sensor_purpose);
   Serial.print("Scenarios: "); Serial.println(g_sensor_scenarios);
@@ -173,6 +198,7 @@ void handleWrite(const String& line) {
   if (key == KEY_NAME)           g_sensor_name = value;
   else if (key == KEY_PURPOSE)   g_sensor_purpose = value;
   else if (key == KEY_SCENARIOS) g_sensor_scenarios = value;
+  else if (key == KEY_SERIAL)    return; // серийник read-only
   else return; // неизвестный ключ — молчим
 
   if (saveMeta()) {
