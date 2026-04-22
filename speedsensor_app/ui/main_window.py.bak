@@ -16,8 +16,9 @@
   Любой → сценарии                    (вкладки наверху)
 """
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QTabWidget, QStatusBar, QStackedWidget,
+    QMainWindow, QWidget, QVBoxLayout,
+    QLabel, QComboBox, QTabWidget, QStatusBar,
+    QToolBar, QStackedWidget,
 )
 from PySide6.QtCore import Qt
 
@@ -56,7 +57,12 @@ class MainWindow(QMainWindow):
     # ================================================================= UI ==
 
     def _build_ui(self):
-        # ── Язык (ComboBox) ───────────────────────────────────────────────
+        # ── Toolbar ──────────────────────────────────────────────────────
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        toolbar.setStyleSheet("QToolBar { border: none; padding: 4px 8px; }")
+        toolbar.addWidget(QLabel("Язык / Language: "))
+
         self._cb_lang = QComboBox()
         for label, code in LANG_OPTIONS:
             self._cb_lang.addItem(label, code)
@@ -64,22 +70,13 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self._cb_lang.setCurrentIndex(idx)
         self._cb_lang.currentIndexChanged.connect(self._on_lang_changed)
+        toolbar.addWidget(self._cb_lang)
+        self.addToolBar(toolbar)
 
-        # ── Tabs ──────────────────────────────────────────────────────────
+        # ── Tabs (верхние вкладки только для навигации) ───────────────────
         self._tabs = QTabWidget()
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
         self._tabs.currentChanged.connect(self._on_tab_changed)
-
-        # Выбор языка в правом углу строки вкладок
-        _lang_corner = QWidget()
-        _lang_lay = QHBoxLayout(_lang_corner)
-        _lang_lay.setContentsMargins(0, 0, 8, 0)
-        _lang_lay.setSpacing(4)
-        _lang_lbl = QLabel("Язык:")
-        _lang_lbl.setStyleSheet("color: #a6adc8; font-size: 12px;")
-        _lang_lay.addWidget(_lang_lbl)
-        _lang_lay.addWidget(self._cb_lang)
-        self._tabs.setCornerWidget(_lang_corner, Qt.Corner.TopRightCorner)
 
         # Shared PortScanner (используется HomeWidget и SensorConnectWidget)
         self._shared_scanner = PortScanner(self)
@@ -90,11 +87,12 @@ class MainWindow(QMainWindow):
         self._home_widget = HomeWidget(self._shared_scanner, _scenarios_dir)
         self._tabs.addTab(self._home_widget, "🏠  Главная")
 
-        # Вкладка «Сценарии»
+        # Вкладка «Сценарии» — содержит QStackedWidget для экранов эксперимента
         scenarios_outer = QWidget()
         outer_lay = QVBoxLayout(scenarios_outer)
         outer_lay.setContentsMargins(0, 0, 0, 0)
 
+        # Stacked: сценарии
         self._stack_scenarios = QStackedWidget()
         self._scenarios_widget = ScenariosWidget(self._settings, self._lang)
         self._scenarios_widget.scenario_launched.connect(self._on_scenario_launched)
@@ -102,13 +100,14 @@ class MainWindow(QMainWindow):
         outer_lay.addWidget(self._stack_scenarios)
         self._tabs.addTab(scenarios_outer, "📋  Сценарии")
 
-        # Вкладка «Эксперимент»
+        # Вкладка «Эксперимент» — содержит QStackedWidget для всего потока
         experiment_outer = QWidget()
         exp_outer_lay = QVBoxLayout(experiment_outer)
         exp_outer_lay.setContentsMargins(0, 0, 0, 0)
 
         self._stack_exp = QStackedWidget()
 
+        # Экраны потока эксперимента
         self._mode_selector = ModeSelectorWidget()
         self._mode_selector.mode_selected.connect(self._on_mode_selected)
         self._stack_exp.addWidget(self._mode_selector)            # IDX_MODE=0
@@ -153,41 +152,46 @@ class MainWindow(QMainWindow):
 
     def _on_scenario_launched(self, scenario: Scenario):
         self._current_scenario = scenario
-        self._stack_exp.setCurrentIndex(0)
-        self._tabs.setCurrentIndex(2)
+        self._stack_exp.setCurrentIndex(0)   # показать выбор режима
+        self._tabs.setCurrentIndex(2)         # переключить на вкладку эксперимента
         self._status.showMessage(f"Сценарий: {scenario.name(self._lang)}")
 
     def _on_mode_selected(self, mode: str):
         if mode == MODE_SIMULATION:
             self._experiment.setup(
                 mode=MODE_SIMULATION,
-                scenario=self._current_scenario)
-            self._stack_exp.setCurrentIndex(2)
+                scenario=self._current_scenario,
+            )
+            self._stack_exp.setCurrentIndex(2)   # → эксперимент
         else:
             confirmed = self._shared_scanner.confirmed_port
             if confirmed:
+                # Датчик уже найден — сразу в эксперимент
                 self._experiment.setup(
                     mode=MODE_SENSOR,
                     port=confirmed.device,
                     baud=115200,
-                    scenario=self._current_scenario)
-                self._stack_exp.setCurrentIndex(2)
+                    scenario=self._current_scenario,
+                )
+                self._stack_exp.setCurrentIndex(2)   # → эксперимент
             else:
                 self._sensor_connect.sync_state()
-                self._stack_exp.setCurrentIndex(1)
+                self._stack_exp.setCurrentIndex(1)   # → подключение датчика
 
     def _on_sensor_connected(self, port: str, baud: int):
         self._experiment.setup(
             mode=MODE_SENSOR,
             port=port,
             baud=baud,
-            scenario=self._current_scenario)
-        self._stack_exp.setCurrentIndex(2)
+            scenario=self._current_scenario,
+        )
+        self._stack_exp.setCurrentIndex(2)   # → эксперимент
 
     def _on_back_to_mode(self):
-        self._stack_exp.setCurrentIndex(0)
+        self._stack_exp.setCurrentIndex(0)   # → выбор режима
 
     def _on_tab_changed(self, idx: int):
+        # При возврате на вкладку «Сценарии» — ничего лишнего не делаем
         pass
 
     def _on_lang_changed(self, idx: int):
@@ -271,6 +275,7 @@ class MainWindow(QMainWindow):
                 background: #181825; color: #a6adc8;
                 border-top: 1px solid #313244;
             }
+            QToolBar { background: #181825; border-bottom: 1px solid #313244; }
             QCheckBox { spacing: 6px; }
             QCheckBox::indicator {
                 width: 16px; height: 16px;
