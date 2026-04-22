@@ -164,8 +164,19 @@ class MainWindow(QMainWindow):
             )
             self._stack_exp.setCurrentIndex(2)   # → эксперимент
         else:
-            self._sensor_connect.sync_state()
-            self._stack_exp.setCurrentIndex(1)   # → подключение датчика
+            confirmed = self._shared_scanner.confirmed_port
+            if confirmed:
+                # Датчик уже найден — сразу в эксперимент
+                self._experiment.setup(
+                    mode=MODE_SENSOR,
+                    port=confirmed.device,
+                    baud=115200,
+                    scenario=self._current_scenario,
+                )
+                self._stack_exp.setCurrentIndex(2)   # → эксперимент
+            else:
+                self._sensor_connect.sync_state()
+                self._stack_exp.setCurrentIndex(1)   # → подключение датчика
 
     def _on_sensor_connected(self, port: str, baud: int):
         self._experiment.setup(

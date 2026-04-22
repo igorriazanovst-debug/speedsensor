@@ -17,7 +17,7 @@ def main():
     app.installTranslator(translator)
 
     window = MainWindow(settings)
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())
 
