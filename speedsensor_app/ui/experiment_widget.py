@@ -655,8 +655,37 @@ class ExperimentWidget(QWidget):
             self._tooltip.hide()
             return
 
-        # В статичном режиме курсор на графике не обрабатываем
+        # В статичном режиме — обновляем _static_info по позиции курсора
         if not self._tooltip_follow:
+            if self._t_cache.size == 0:
+                return
+            mouse_point = pw.getPlotItem().vb.mapSceneToView(pos)
+            mx = mouse_point.x()
+            ta = self._t_cache
+            ya_disp = self._y_cache
+            ya_raw = self._y_raw_cache
+            idx = int(np.argmin(np.abs(ta - mx)))
+            snap_t = ta[idx]
+            snap_y = ya_disp[idx]
+            snap_omega = ya_raw[idx]
+            # Перекрестие и точка
+            self._vline.setPos(snap_t)
+            self._hline.setPos(snap_y)
+            self._vline.setVisible(True)
+            self._hline.setVisible(True)
+            self._snap_dot.setData([snap_t], [snap_y])
+            self._snap_dot.setVisible(True)
+            # Обновить статичный блок
+            rps = snap_omega / (2.0 * math.pi)
+            rpm = rps * 60.0
+            diam = self._exp_data.disk_diameter_mm
+            v = snap_omega * (diam / 2.0)
+            unit_str = "рад/с" if self._unit == UNIT_RAD_S else "об/с"
+            disp = snap_omega / (2.0 * math.pi) if self._unit == UNIT_RPS else snap_omega
+            self._static_info.setText(
+                f"t={snap_t:.2f}с  ω={disp:.3f} {unit_str}  "
+                f"об/с={rps:.3f}  RPM={rpm:.1f}  V={v:.1f} мм/с"
+            )
             return
 
         mouse_point = pw.getPlotItem().vb.mapSceneToView(pos)
